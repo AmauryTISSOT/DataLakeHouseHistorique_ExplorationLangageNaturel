@@ -8,3 +8,54 @@
 - Adrien FOUQUET
 - Amaury TISSOT
 - Satya MINGUEZ
+
+## Démarrage de la stack
+
+### 1. Lancer les conteneurs
+
+```powershell
+docker compose up -d
+```
+
+Au **premier** démarrage, le service `ollama-init` télécharge automatiquement le modèle
+`qwen3:8b` (~5 Go). `docker compose up -d` rend la main immédiatement : le téléchargement
+se poursuit en arrière-plan. Les démarrages suivants sont instantanés (modèle mis en cache
+dans le volume `ollama_data`).
+
+### 2. Vérifier l'état de la stack
+
+Un script de contrôle teste chaque service et affiche un statut `[OK]` / `[KO]` :
+
+```powershell
+./healthcheck.ps1
+```
+
+Résultat attendu quand tout est prêt : `OK : 16   KO : 0`.
+
+### 3. Si le test « Ollama modèle » est en KO
+
+C'est normal tant que le téléchargement de `qwen3:8b` n'est pas terminé. Vérifie la
+progression en consultant les logs du conteneur d'init :
+
+```powershell
+docker compose logs -f ollama-init
+```
+
+Vous y verrez la progression du `pull` (pourcentage, vitesse). Une fois la ligne `success`
+affichée et le conteneur terminé en `exit 0`, relancez le healthcheck :
+
+```powershell
+./healthcheck.ps1
+```
+
+### Services et interfaces
+
+| Service | URL / Accès | Identifiants |
+|---|---|---|
+| SeaweedFS (API S3) | http://localhost:8333 | `minio` / `minio12345` |
+| SeaweedFS (UI master) | http://localhost:9333 | — |
+| SeaweedFS (filer) | http://localhost:8888 | — |
+| PostgreSQL | `localhost:5432` (base `gold`) | `app` / `app12345` |
+| Airflow | http://localhost:8080 | voir `docker compose logs airflow` |
+| Superset | http://localhost:8088 | admin créé à l'init |
+| Ollama | http://localhost:11434 | — |

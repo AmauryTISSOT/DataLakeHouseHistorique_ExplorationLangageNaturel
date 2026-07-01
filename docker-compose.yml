@@ -1,0 +1,85 @@
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    # Mode "server" tout-en-un (master + volume + filer) avec passerelle S3 activee
+    command: server -dir=/data -s3 -s3.config=/etc/seaweedfs/s3.json -master.volumeSizeLimitMB=1024
+    ports:
+      - "8333:8333"   # API S3
+      - "9333:9333"   # UI master
+      - "8888:8888"   # filer
+    volumes:
+      - seaweed_data:/data
+      - ./seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+  seaweedfs-init:
+    image: minio/mc:latest
+    depends_on: [seaweedfs]
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://seaweedfs:8333 minio minio12345; do echo 'waiting for seaweedfs...'; sleep 2; done;
+      mc mb -p local/bronze local/silver local/gold;
+      exit 0;"
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app12345
+      POSTGRES_DB: gold
+    ports: ["5432:5432"]
+    volumes: ["pg_data:/var/lib/postgresql/data"]
+
+  airflow:
+    image: apache/airflow:2.10.4
+    depends_on: [postgres]
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://app:app12345@postgres/gold
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    ports: ["8080:8080"]
+    volumes: ["./dags:/opt/airflow/dags"]
+    command: standalone
+
+  superset:
+    image: apache/superset:latest
+    environment:
+      SUPERSET_SECRET_KEY: change_me_please
+    ports: ["8088:8088"]
+    volumes: ["superset_home:/app/superset_home"]
+
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["ollama_data:/root/.ollama"]
+    # GPU NVIDIA active
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+  ollama-init:
+    image: ollama/ollama:latest
+    depends_on: [ollama]
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    # Attend qu'Ollama reponde, puis telecharge le modele (idempotent : rien si deja present)
+    entrypoint: >
+      /bin/sh -c "
+      until ollama list >/dev/null 2>&1; do echo 'waiting for ollama...'; sleep 2; done;
+      ollama pull qwen3:8b;
+      exit 0;"
+    restart: "no"
+
+  # nl2sql-app:
+  #   build: ./nl2sql-app     # Streamlit + LangChain + client LLM
+  #   environment:
+  #     LLM_BASE_URL: "http://ollama:11434/v1"   # ou API Gemini/Mistral
+  #     PG_DSN: "postgresql://app:app12345@postgres/gold"
+  #   ports: ["8501:8501"]
+  #   depends_on: [postgres, ollama]
+
+volumes:
+  seaweed_data:
+  pg_data:
+  superset_home:
+  ollama_data:
