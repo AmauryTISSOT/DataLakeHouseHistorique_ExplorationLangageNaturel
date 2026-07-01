@@ -9,6 +9,40 @@
 - Amaury TISSOT
 - Satya MINGUEZ
 
+## Prérequis
+
+> ⚠️ **Le `docker-compose.yml` nécessite un GPU NVIDIA.** Le service `ollama` réserve
+> un GPU (`driver: nvidia`) pour accélérer l'inférence du modèle. Sur une machine sans
+> GPU NVIDIA (ou sans le [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)),
+> Docker refuse de démarrer le conteneur avec l'erreur :
+>
+> ```
+> could not select device driver "nvidia" with capabilities: [[gpu]]
+> ```
+>
+> Pour utiliser le GPU, il faut donc :
+> - un GPU NVIDIA + pilotes à jour ;
+> - le **NVIDIA Container Toolkit** installé et configuré pour Docker.
+
+### Basculer en mode CPU (sans GPU NVIDIA)
+
+Ollama fonctionne aussi **sans GPU** (inférence sur le CPU, plus lente). Pour cela,
+commentez le bloc `deploy` du service `ollama` dans le `docker-compose.yml` :
+
+```yaml
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: ["ollama_data:/root/.ollama"]
+    # GPU NVIDIA active -- a commenter sur une machine sans GPU NVIDIA :
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+```
+
+Relancez ensuite `docker compose up -d` normalement.
+
 ## Démarrage de la stack
 
 ### 1. Lancer les conteneurs
