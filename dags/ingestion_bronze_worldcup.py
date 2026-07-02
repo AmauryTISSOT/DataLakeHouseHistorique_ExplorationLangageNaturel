@@ -56,10 +56,10 @@ BRONZE_BUCKET = os.getenv("BRONZE_BUCKET", "bronze")
 # Point de montage du dossier Data/ du repo dans le conteneur Airflow.
 LOCAL_RAW_DIR = os.getenv("BRONZE_LOCAL_RAW_DIR", "/opt/airflow/data/raw")
 
-GITHUB_RAW = "https://raw.githubusercontent.com/jfjelstul/worldcup/master"
+# GITHUB_RAW = "https://raw.githubusercontent.com/jfjelstul/worldcup/master"
 
 # Liste complete des pays en une page (295 entrees < per_page=400).
-WORLDBANK_URL = "https://api.worldbank.org/v2/country?format=json&per_page=400"
+# WORLDBANK_URL = "https://api.worldbank.org/v2/country?format=json&per_page=400"
 
 HTTP_TIMEOUT = 120  # worldcup.json fait ~36 Mo
 
@@ -151,34 +151,34 @@ def ingestion_bronze_worldcup():
             source=f"repo:Data/raw/{relpath}",
         )
 
-    @task
-    def ingest_worldcup_json(ds: str | None = None) -> dict:
-        """Source 2 — JSON consolide du depot jfjelstul/worldcup."""
-        url = f"{GITHUB_RAW}/data-json/worldcup.json"
-        content = _download(url)
-        return _upload(
-            key=f"worldcup_json/ingest_date={ds}/worldcup.json",
-            content=content,
-            content_type="application/json",
-            source=url,
-        )
+    # @task
+    # def ingest_worldcup_json(ds: str | None = None) -> dict:
+    #     """Source 2 — JSON consolide du depot jfjelstul/worldcup."""
+    #     url = f"{GITHUB_RAW}/data-json/worldcup.json"
+    #     content = _download(url)
+    #     return _upload(
+    #         key=f"worldcup_json/ingest_date={ds}/worldcup.json",
+    #         content=content,
+    #         content_type="application/json",
+    #         source=url,
+    #     )
 
-    @task
-    def ingest_api_worldbank(ds: str | None = None) -> dict:
-        """Source 3 — API REST (metadonnees pays pour DIM_EQUIPE).
+    # @task
+    # def ingest_api_worldbank(ds: str | None = None) -> dict:
+    #     """Source 3 — API REST (metadonnees pays pour DIM_EQUIPE).
 
-        La reponse World Bank est une liste [pagination, [pays, ...]].
-        """
-        content = _download(WORLDBANK_URL)
-        payload = json.loads(content)
-        if not (isinstance(payload, list) and len(payload) == 2 and payload[1]):
-            raise ValueError("Reponse World Bank vide ou inattendue")
-        return _upload(
-            key=f"worldbank/ingest_date={ds}/countries.json",
-            content=content,
-            content_type="application/json",
-            source=WORLDBANK_URL,
-        )
+    #     La reponse World Bank est une liste [pagination, [pays, ...]].
+    #     """
+    #     content = _download(WORLDBANK_URL)
+    #     payload = json.loads(content)
+    #     if not (isinstance(payload, list) and len(payload) == 2 and payload[1]):
+    #         raise ValueError("Reponse World Bank vide ou inattendue")
+    #     return _upload(
+    #         key=f"worldbank/ingest_date={ds}/countries.json",
+    #         content=content,
+    #         content_type="application/json",
+    #         source=WORLDBANK_URL,
+    #     )
 
     @task
     def write_manifest(
@@ -210,15 +210,15 @@ def ingestion_bronze_worldcup():
 
     local_files = list_local_csv()
     csv_uploads = ingest_local_csv.expand(relpath=local_files)
-    json_upload = ingest_worldcup_json()
-    api_upload = ingest_api_worldbank()
+    # json_upload = ingest_worldcup_json()
+    # api_upload = ingest_api_worldbank()
 
-    bucket_ready >> [local_files, json_upload, api_upload]
+    # bucket_ready >> [local_files, json_upload, api_upload]
 
-    write_manifest(
-        csv_uploads=csv_uploads,
-        other_uploads=[json_upload, api_upload],
-    )
+    # write_manifest(
+    #     csv_uploads=csv_uploads,
+    #     other_uploads=[json_upload, api_upload],
+    # )
 
 
 ingestion_bronze_worldcup()
