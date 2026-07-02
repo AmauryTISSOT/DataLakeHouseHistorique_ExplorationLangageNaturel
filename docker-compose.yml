@@ -46,8 +46,38 @@ services:
     volumes: ["./dags:/opt/airflow/dags", "./Data:/opt/airflow/data:ro"]
     command: standalone
 
+  # Image Superset custom : ajoute le driver psycopg2 (absent de l'image officielle).
+  # superset-init prepare la base de metadonnees puis enregistre la connexion GOLD,
+  # avant que le service superset ne serve l'UI.
+  superset-init:
+    build: ./superset
+    image: superset-gold:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Doit etre identique au service superset : sert a chiffrer/dechiffrer
+      # le mot de passe de la connexion GOLD stocke en base de metadonnees.
+      SUPERSET_SECRET_KEY: change_me_please
+    volumes: ["superset_home:/app/superset_home"]
+    # Migrations -> compte admin (admin/admin) -> roles/permissions -> connexion GOLD.
+    # Chaque etape est idempotente : le conteneur peut etre rejoue sans effet de bord.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - >
+        superset db upgrade &&
+        (superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true) &&
+        superset init &&
+        python /app/register_gold.py
+    restart: "no"
+
   superset:
-    image: apache/superset:latest
+    build: ./superset
+    image: superset-gold:local
+    depends_on:
+      superset-init:
+        condition: service_completed_successfully
     environment:
       SUPERSET_SECRET_KEY: change_me_please
     ports: ["8088:8088"]
