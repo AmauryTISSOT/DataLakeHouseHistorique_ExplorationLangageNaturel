@@ -58,7 +58,13 @@ def load_team_names() -> list[str]:
 
 
 conn = get_connection()
-team_names = load_team_names()
+try:
+    team_names = load_team_names()
+except Exception as e:
+    # Base GOLD joignable mais pas encore peuplee (pipeline non lancee) : l'appli
+    # demarre quand meme, sans l'ancrage des libelles. Utile au 1er `up`.
+    log.warning("Noms d'équipes indisponibles (base GOLD pas encore peuplée ?) : %s", e)
+    team_names = []
 
 st.title("⚽ Exploration en langage naturel — Coupe du Monde")
 st.caption(

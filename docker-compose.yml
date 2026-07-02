@@ -28,6 +28,11 @@ services:
       POSTGRES_DB: gold
     ports: ["5432:5432"]
     volumes: ["pg_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d gold"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   airflow:
     image: apache/airflow:2.10.4
@@ -71,13 +76,21 @@ services:
       exit 0;"
     restart: "no"
 
-  # nl2sql-app:
-  #   build: ./nl2sql-app     # Streamlit + LangChain + client LLM
-  #   environment:
-  #     LLM_BASE_URL: "http://ollama:11434/v1"   # ou API Gemini/Mistral
-  #     PG_DSN: "postgresql://app:app12345@postgres/gold"
-  #   ports: ["8501:8501"]
-  #   depends_on: [postgres, ollama]
+  nl2sql-app:
+    build: ./nl2sql-app          # Streamlit + client Ollama + validation SQL
+    environment:
+      # Sur le reseau Compose, on vise les services par leur nom (pas localhost).
+      GOLD_HOST: postgres                       # base GOLD interrogee en lecture seule
+      OLLAMA_BASE_URL: "http://ollama:11434"    # API native Ollama (pas /v1)
+      OLLAMA_MODEL: "qwen3:8b"
+      NL2SQL_LOG_LEVEL: "INFO"
+    ports: ["8501:8501"]
+    depends_on:
+      postgres:
+        condition: service_healthy   # attend que la base accepte les connexions
+      ollama:
+        condition: service_started
+    restart: unless-stopped
 
 volumes:
   seaweed_data:

@@ -1,0 +1,8 @@
+# Dependances RUNTIME de l'application Streamlit NL->SQL (image Docker).
+# Sous-ensemble volontairement minimal du requirements.txt racine (pas de
+# jupyter / soccerdata / boto3, inutiles a l'appli) -> image legere.
+streamlit>=1.40        # interface (app.py)
+pandas>=2.0            # mise en forme des resultats (app.py, render.py)
+psycopg2-binary>=2.9   # acces a la base GOLD (PostgreSQL)
+sqlglot>=25            # validation lecture seule (sql_guard.py)
+requests>=2.31         # client Ollama (llm_client.py)
