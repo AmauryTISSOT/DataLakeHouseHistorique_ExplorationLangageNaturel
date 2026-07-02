@@ -1,1 +1,5 @@
 .claude
+
+# Surcharge Docker Compose locale (ports, GPU) propre a chaque poste
+docker-compose.override.yml
+/dags/__pycache__
