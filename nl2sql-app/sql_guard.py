@@ -8,11 +8,12 @@ Strategie = LISTE BLANCHE (et non liste noire de mots-cles) :
      CREATE, ALTER, PRAGMA, ATTACH, ...) est refuse par defaut ;
   3. seules les tables connues du schema en etoile sont referencees.
 
-Parsing par AST (sqlglot, dialecte sqlite) : robuste aux commentaires, a la casse
+Parsing par AST (sqlglot, dialecte postgres) : robuste aux commentaires, a la casse
 et aux mots-cles caches dans des chaines, contrairement a une regex.
 
-C'est la 1re ligne de defense. Le backstop moteur `PRAGMA query_only = ON`
-(cf. db/seed.py) reste le dernier rempart, meme si cette validation etait contournee.
+C'est la 1re ligne de defense. Le backstop moteur (session PostgreSQL en lecture
+seule, cf. db/gold.py) reste le dernier rempart, meme si cette validation etait
+contournee.
 
 Testable en isolation, sans LLM ni Streamlit :
     python nl2sql-app/sql_guard.py
@@ -22,10 +23,15 @@ from __future__ import annotations
 import sqlglot
 from sqlglot import exp
 
-DIALECT = "sqlite"
+DIALECT = "postgres"
 
-# Tables autorisees (le schema en etoile). Comparaison insensible a la casse.
-ALLOWED_TABLES = {"FAIT_MATCH", "DIM_EQUIPE", "DIM_EDITION"}
+# Tables autorisees (schema en etoile GOLD + marts). Comparaison insensible a la casse.
+ALLOWED_TABLES = {
+    "DIM_EDITION", "DIM_EQUIPE", "DIM_JOUEUR", "DIM_STADE",
+    "FAIT_MATCH", "FAIT_BUT",
+    "MART_CLASSEMENT_BUTEURS", "MART_STATS_EDITION",
+    "MART_STATS_EQUIPE", "MART_BUTS_PAR_PERIODE",
+}
 
 # Types de noeuds interdits n'importe ou dans l'arbre (defense en profondeur,
 # en complement de la liste blanche sur le type de l'instruction).
@@ -97,31 +103,31 @@ if __name__ == "__main__":
     ROLE_PLAYING = """
         SELECT SUM(buts) FROM (
             SELECT score_domicile AS buts FROM FAIT_MATCH m
-            JOIN DIM_EQUIPE e ON e.equipe_id = m.equipe_domicile_id
-            WHERE e.nom_equipe = 'Argentina'
+            JOIN DIM_EQUIPE e ON e.id_equipe = m.id_equipe_domicile
+            WHERE e.pays = 'Argentina'
             UNION ALL
             SELECT score_exterieur AS buts FROM FAIT_MATCH m
-            JOIN DIM_EQUIPE e ON e.equipe_id = m.equipe_exterieur_id
-            WHERE e.nom_equipe = 'Argentina'
-        )
+            JOIN DIM_EQUIPE e ON e.id_equipe = m.id_equipe_exterieur
+            WHERE e.pays = 'Argentina'
+        ) t
     """
 
     ACCEPTES = [
-        ("select simple", "SELECT nom_equipe FROM DIM_EQUIPE"),
+        ("select simple", "SELECT pays FROM DIM_EQUIPE"),
         ("union haut niveau", "SELECT 1 FROM FAIT_MATCH UNION ALL SELECT 2 FROM FAIT_MATCH"),
         ("CTE", "WITH t AS (SELECT * FROM FAIT_MATCH) SELECT COUNT(*) FROM t"),
         ("casse + commentaire", "/* ok */ select * from fait_match"),
+        ("mart buteurs", "SELECT nom, nb_buts FROM MART_CLASSEMENT_BUTEURS ORDER BY nb_buts DESC LIMIT 10"),
         ("double role", ROLE_PLAYING),
     ]
     REFUSES = [
         ("injection multi", "SELECT 1 FROM DIM_EQUIPE; DROP TABLE DIM_EQUIPE"),
         ("drop", "DROP TABLE FAIT_MATCH"),
         ("delete", "DELETE FROM FAIT_MATCH"),
-        ("update", "UPDATE DIM_EQUIPE SET nom_equipe = 'x'"),
-        ("insert", "INSERT INTO DIM_EQUIPE (equipe_id, nom_equipe) VALUES (1, 'x')"),
-        ("pragma", "PRAGMA query_only = OFF"),
+        ("update", "UPDATE DIM_EQUIPE SET pays = 'x'"),
+        ("insert", "INSERT INTO DIM_EQUIPE (id_equipe, pays) VALUES (1, 'x')"),
         ("attach", "ATTACH DATABASE 'evil.db' AS e"),
-        ("table inconnue", "SELECT * FROM sqlite_master"),
+        ("table inconnue", "SELECT * FROM pg_stat_activity"),
         ("vide", "   "),
     ]
 

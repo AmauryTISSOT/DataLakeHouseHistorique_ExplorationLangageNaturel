@@ -20,5 +20,6 @@ boto3>=1.34
 requests>=2.31
 
 # Application NL->SQL (nl2sql-app)
-sqlglot>=25        # validation applicative des requetes generees (parsing AST)
-streamlit>=1.40    # interface du banc d'essai (app.py)
+sqlglot>=25            # validation applicative des requetes generees (parsing AST)
+streamlit>=1.40        # interface du banc d'essai (app.py)
+psycopg2-binary>=2.9   # acces a la base GOLD servie (PostgreSQL)

@@ -6,8 +6,8 @@ Choix de conception (cf. synthese du projet) :
   - `think: true`  -> le raisonnement de qwen3 revient dans `message.thinking`,
     SEPARE du SQL (aucun regex a faire).
   - `format: {schema JSON}` -> `message.content` est un JSON pur `{"sql": "..."}`.
-  - Le schema injecte dans le prompt est le DDL brut (`db/schema.sql`), qui porte
-    deja le commentaire semantique sur la dimension a roles.
+  - Le schema injecte dans le prompt est le DDL brut (`db/schema.sql`) du schema
+    GOLD reel (PostgreSQL), qui porte deja le commentaire sur la dimension a roles.
   - Un seul exemple few-shot cible : le patron "buts d'une equipe sur une edition"
     (agregation des deux roles), le cas qui fait echouer le modele sinon.
 
@@ -43,22 +43,21 @@ _RESPONSE_FORMAT = {
 }
 
 # Exemple few-shot cible sur la dimension a roles (le point dur).
+# fait_match.annee est denormalise -> pas besoin de joindre dim_edition pour l'annee.
 _FEW_SHOT = """\
 Question : Combien de buts la France a-t-elle marques en 2018 ?
 SQL :
 SELECT SUM(buts) AS total_buts FROM (
     SELECT m.score_domicile AS buts
-    FROM FAIT_MATCH m
-    JOIN DIM_EQUIPE  e ON e.equipe_id  = m.equipe_domicile_id
-    JOIN DIM_EDITION d ON d.edition_id = m.edition_id
-    WHERE e.nom_equipe = 'France' AND d.annee = 2018
+    FROM fait_match m
+    JOIN dim_equipe e ON e.id_equipe = m.id_equipe_domicile
+    WHERE e.pays = 'France' AND m.annee = 2018
     UNION ALL
     SELECT m.score_exterieur AS buts
-    FROM FAIT_MATCH m
-    JOIN DIM_EQUIPE  e ON e.equipe_id  = m.equipe_exterieur_id
-    JOIN DIM_EDITION d ON d.edition_id = m.edition_id
-    WHERE e.nom_equipe = 'France' AND d.annee = 2018
-);"""
+    FROM fait_match m
+    JOIN dim_equipe e ON e.id_equipe = m.id_equipe_exterieur
+    WHERE e.pays = 'France' AND m.annee = 2018
+) t;"""
 
 
 class LLMError(RuntimeError):
@@ -80,20 +79,20 @@ def _load_schema_ddl() -> str:
 def _format_team_names(team_names: list[str] | None) -> str:
     """Section 'valeurs autorisees' : ancre le modele sur les libelles reels.
 
-    Les noms d'equipes sont stockes en anglais (source Kaggle) avec parfois une
-    orthographe non devinable ('Korea Republic', 'IR Iran', 'United States').
+    Les noms de pays sont stockes en anglais (dim_equipe.pays), parfois avec une
+    orthographe non devinable ('South Korea', 'United States', 'IR Iran').
     Les lister force le modele a traduire 'Espagne' -> 'Spain' lui-meme.
     """
     if not team_names:
         return ""
     liste = ", ".join(team_names)
     return f"""
-Valeurs EXACTES de DIM_EQUIPE.nom_equipe (en anglais) :
+Valeurs EXACTES de dim_equipe.pays (en anglais) :
 {liste}
 
 Quand la question nomme un pays (souvent en francais), traduis-le vers le
 libelle EXACT ci-dessus (ex. 'Espagne' -> 'Spain', 'Coree du Sud' ->
-'Korea Republic', 'Etats-Unis' -> 'United States'). N'invente jamais un
+'South Korea', 'Etats-Unis' -> 'United States'). N'invente jamais un
 libelle absent de cette liste.
 """
 
@@ -109,10 +108,10 @@ Tu es un assistant qui traduit une question en une requete SQL pour SQLite.
 
 Regles imperatives :
 - Genere UNE SEULE requete SELECT, en lecture seule. Jamais INSERT, UPDATE,
-  DELETE, DROP, ALTER, PRAGMA ni ATTACH.
+  DELETE, DROP, ALTER, CREATE ni COPY.
 - Utilise UNIQUEMENT les tables et colonnes du schema ci-dessous.
-- Filtre sur nom_equipe UNIQUEMENT avec un libelle EXACT de la liste fournie.
-- Dialecte SQLite.
+- Filtre sur dim_equipe.pays UNIQUEMENT avec un libelle EXACT de la liste fournie.
+- Dialecte PostgreSQL.
 - Reponds STRICTEMENT au format JSON demande : {{"sql": "<la requete>"}}.
 
 Schema de la base (DDL) :
@@ -131,7 +130,7 @@ def generate_sql(
 ) -> SQLGeneration:
     """Appelle Ollama et renvoie le SQL genere (+ le raisonnement isole).
 
-    `team_names` (facultatif) : les libelles reels de DIM_EQUIPE.nom_equipe,
+    `team_names` (facultatif) : les libelles reels de dim_equipe.pays,
     injectes dans le prompt pour ancrer le modele sur les valeurs existantes.
     """
     if not question or not question.strip():
@@ -175,7 +174,7 @@ def generate_sql(
 
 if __name__ == "__main__":
     import sql_guard
-    from db.seed import build_database
+    from db.gold import connect, get_team_names
 
     QUESTIONS = [
         ("Combien de buts l'Argentine a-t-elle marques en 2022 ?", 15),
@@ -185,9 +184,8 @@ if __name__ == "__main__":
     ]
 
     try:
-        conn = build_database(read_only=True)
-        team_names = [r[0] for r in conn.execute(
-            "SELECT nom_equipe FROM DIM_EQUIPE ORDER BY nom_equipe")]
+        conn = connect()
+        team_names = get_team_names(conn)
         for question, attendu in QUESTIONS:
             print(f"\nQ : {question}")
             gen = generate_sql(question, team_names=team_names)
@@ -200,8 +198,10 @@ if __name__ == "__main__":
             if not valide:
                 continue
 
-            # 2) execution sur la base mockee (lecture seule)
-            rows = conn.execute(gen.sql).fetchall()
+            # 2) execution sur la base GOLD (session lecture seule)
+            with conn.cursor() as cur:
+                cur.execute(gen.sql)
+                rows = cur.fetchall()
             resultat = rows[0][0] if len(rows) == 1 and len(rows[0]) == 1 else rows
             etat = "OK" if resultat == attendu else f"!= attendu ({attendu})"
             print(f"  resultat : {resultat}  -> {etat}")

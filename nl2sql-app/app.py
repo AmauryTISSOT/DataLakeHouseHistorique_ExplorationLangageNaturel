@@ -27,7 +27,7 @@ import streamlit as st
 
 import render as render_mod
 import sql_guard
-from db.seed import EDITIONS, build_database
+from db import gold
 from llm_client import SCHEMA_PATH, LLMError, generate_sql
 
 # Logs pilotables par env : NL2SQL_LOG_LEVEL=DEBUG pour le detail (raisonnement
@@ -45,31 +45,31 @@ st.set_page_config(page_title="NL -> SQL Coupe du Monde", page_icon="⚽", layou
 
 @st.cache_resource
 def get_connection():
-    """Connexion UNIQUE, semee et read-only, gardee en vie a travers les reruns."""
-    return build_database(read_only=True)
+    """Connexion UNIQUE a la base GOLD (PostgreSQL), read-only, gardee en vie
+    a travers les reruns Streamlit."""
+    return gold.connect()
 
 
 @st.cache_data
-def get_team_names() -> list[str]:
-    """Libelles reels de DIM_EQUIPE (anglais), injectes dans le prompt pour
-    ancrer le modele : il traduit lui-meme 'Espagne' -> 'Spain'."""
-    return [r[0] for r in get_connection().execute(
-        "SELECT nom_equipe FROM DIM_EQUIPE ORDER BY nom_equipe")]
+def load_team_names() -> list[str]:
+    """Libelles reels des pays (dim_equipe.pays, anglais), injectes dans le prompt
+    pour ancrer le modele : il traduit lui-meme 'Espagne' -> 'Spain'."""
+    return gold.get_team_names(get_connection())
 
 
 conn = get_connection()
-team_names = get_team_names()
+team_names = load_team_names()
 
 st.title("⚽ Exploration en langage naturel — Coupe du Monde")
 st.caption(
     "question → LLM → SQL → validation lecture seule → exécution → visualisation. "
-    f"Base mockée SQLite (éditions {' + '.join(EDITIONS)})."
+    "Base GOLD (PostgreSQL), Coupe du Monde 1930–2022."
 )
 
 with st.sidebar:
     st.subheader("Schéma injecté dans le prompt")
     st.code(SCHEMA_PATH.read_text(encoding="utf-8"), language="sql")
-    st.caption("Ce DDL est la source de vérité : il alimente à la fois la base et le prompt.")
+    st.caption("Ce DDL décrit la base GOLD réelle (PostgreSQL) et sert de source de vérité au prompt.")
 
 question = st.text_input(
     "Votre question",
@@ -114,11 +114,12 @@ if lancer:
         st.stop()
     st.success("✅ Validation OK — lecture seule, une seule instruction, tables autorisées.")
 
-    # 3) Execution sur la base mockee (connexion read-only).
+    # 3) Execution sur la base GOLD (session read-only cote serveur).
     try:
-        cur = conn.execute(gen.sql)
-        cols = [d[0] for d in cur.description] if cur.description else []
-        df = pd.DataFrame(cur.fetchall(), columns=cols)
+        with conn.cursor() as cur:
+            cur.execute(gen.sql)
+            cols = [d[0] for d in cur.description] if cur.description else []
+            df = pd.DataFrame(cur.fetchall(), columns=cols)
         log.info("Exécution : %d lignes × %d colonnes", len(df), len(df.columns))
     except Exception as e:  # erreur SQL affichee, pas de retry (decision 5c)
         log.warning("Erreur d'exécution SQL : %s", e)
