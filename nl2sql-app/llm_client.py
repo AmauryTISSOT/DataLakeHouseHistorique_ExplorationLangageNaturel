@@ -20,11 +20,14 @@ Testable en isolation (necessite Ollama joignable) :
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+
+log = logging.getLogger("nl2sql.llm")
 
 _HERE = Path(__file__).resolve().parent
 SCHEMA_PATH = _HERE / "db" / "schema.sql"
@@ -116,19 +119,23 @@ def generate_sql(
         "options": {"temperature": 0},
     }
 
+    log.debug("POST %s/api/chat (model=%s) question=%r", base_url, model, question.strip())
     try:
         resp = requests.post(f"{base_url}/api/chat", json=payload, timeout=timeout)
         resp.raise_for_status()
     except requests.exceptions.RequestException as e:
+        log.warning("Appel Ollama échoué (%s) : %s", base_url, e)
         raise LLMError(f"Appel Ollama echoue ({base_url}) : {e}") from e
 
     message = resp.json().get("message", {})
     content = message.get("content", "")
     thinking = message.get("thinking", "") or ""
+    log.debug("Réponse Ollama brute : content=%r thinking=%r", content, thinking)
 
     try:
         sql = json.loads(content)["sql"]
     except (json.JSONDecodeError, KeyError, TypeError) as e:
+        log.warning("Réponse LLM inexploitable : %r", content)
         raise LLMError(f"Reponse LLM inexploitable : {content!r}") from e
 
     return SQLGeneration(sql=sql.strip(), thinking=thinking.strip(), raw_content=content)
