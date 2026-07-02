@@ -93,6 +93,7 @@ affichée et le conteneur terminé en `exit 0`, relancez le healthcheck :
 | Airflow | http://localhost:8080 | `datalake` / `datalake` (voir ci-dessous) |
 | Superset | http://localhost:8088 | admin créé à l'init |
 | Ollama | http://localhost:11434 | — |
+| Application NL→SQL | http://localhost:8501 | — |
 
 ### Créer l'utilisateur Airflow
 
@@ -173,3 +174,43 @@ FROM gold.mart_stats_edition ORDER BY annee DESC;
 
 On peut aussi s'y connecter avec un client graphique (DBeaver, pgAdmin…) sur
 `localhost:5432`, base `gold`, schéma `gold` (`app` / `app12345`).
+
+## Exploration en langage naturel (text-to-SQL)
+
+L'application `nl2sql-app` (Streamlit) traduit une question en français en requête
+SQL, la valide en **lecture seule**, l'exécute sur la base **Gold** et affiche le
+résultat (tableau ou graphique).
+
+Chaîne : question → LLM (Ollama `qwen3:8b`) → SQL PostgreSQL → validation lecture
+seule (`sqlglot`) → exécution sur Gold → visualisation.
+
+### Lancer l'application
+
+```powershell
+docker compose up -d --build nl2sql-app
+```
+
+Interface : http://localhost:8501
+
+Le conteneur joint les services `postgres` et `ollama` par leur **nom de service**
+sur le réseau Compose (variables `GOLD_HOST=postgres` et
+`OLLAMA_BASE_URL=http://ollama:11434`). Il démarre sous un utilisateur non-root et
+expose une sonde de santé (`/_stcore/health`).
+
+### Prérequis
+
+- le modèle Ollama `qwen3:8b` téléchargé (cf. [Démarrage de la stack](#démarrage-de-la-stack)) ;
+- la **pipeline Gold exécutée au moins une fois** : l'application interroge le
+  schéma `gold`. Tant qu'il est vide, l'appli démarre mais les requêtes ne
+  renvoient rien.
+
+### Développement local (hors conteneur)
+
+```powershell
+pip install -r requirements.txt
+streamlit run nl2sql-app/app.py
+```
+
+Les valeurs par défaut pointent alors sur `localhost` (Postgres `5432`, Ollama
+`11434`). On peut surcharger la cible via les variables d'environnement
+(`GOLD_HOST`, `GOLD_PORT`, `OLLAMA_BASE_URL`, `NL2SQL_LOG_LEVEL`…).

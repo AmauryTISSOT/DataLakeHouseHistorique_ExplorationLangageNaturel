@@ -2,4 +2,11 @@
 
 # Surcharge Docker Compose locale (ports, GPU) propre a chaque poste
 docker-compose.override.yml
-/dags/__pycache__
+
+# Bytecode et environnements Python
+__pycache__/
+*.pyc
+.venv/
+
+# Dumps de crash (Git Bash sous Windows)
+*.stackdump
