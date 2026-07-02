@@ -77,8 +77,32 @@ def _load_schema_ddl() -> str:
     return SCHEMA_PATH.read_text(encoding="utf-8")
 
 
-def build_system_prompt(schema_ddl: str | None = None) -> str:
-    """Construit le prompt systeme : regles + schema DDL + exemple few-shot."""
+def _format_team_names(team_names: list[str] | None) -> str:
+    """Section 'valeurs autorisees' : ancre le modele sur les libelles reels.
+
+    Les noms d'equipes sont stockes en anglais (source Kaggle) avec parfois une
+    orthographe non devinable ('Korea Republic', 'IR Iran', 'United States').
+    Les lister force le modele a traduire 'Espagne' -> 'Spain' lui-meme.
+    """
+    if not team_names:
+        return ""
+    liste = ", ".join(team_names)
+    return f"""
+Valeurs EXACTES de DIM_EQUIPE.nom_equipe (en anglais) :
+{liste}
+
+Quand la question nomme un pays (souvent en francais), traduis-le vers le
+libelle EXACT ci-dessus (ex. 'Espagne' -> 'Spain', 'Coree du Sud' ->
+'Korea Republic', 'Etats-Unis' -> 'United States'). N'invente jamais un
+libelle absent de cette liste.
+"""
+
+
+def build_system_prompt(
+    schema_ddl: str | None = None,
+    team_names: list[str] | None = None,
+) -> str:
+    """Construit le prompt systeme : regles + schema DDL + valeurs + few-shot."""
     ddl = schema_ddl if schema_ddl is not None else _load_schema_ddl()
     return f"""\
 Tu es un assistant qui traduit une question en une requete SQL pour SQLite.
@@ -87,12 +111,13 @@ Regles imperatives :
 - Genere UNE SEULE requete SELECT, en lecture seule. Jamais INSERT, UPDATE,
   DELETE, DROP, ALTER, PRAGMA ni ATTACH.
 - Utilise UNIQUEMENT les tables et colonnes du schema ci-dessous.
+- Filtre sur nom_equipe UNIQUEMENT avec un libelle EXACT de la liste fournie.
 - Dialecte SQLite.
 - Reponds STRICTEMENT au format JSON demande : {{"sql": "<la requete>"}}.
 
 Schema de la base (DDL) :
 {ddl}
-
+{_format_team_names(team_names)}
 {_FEW_SHOT}"""
 
 
@@ -102,15 +127,20 @@ def generate_sql(
     base_url: str = DEFAULT_BASE_URL,
     model: str = DEFAULT_MODEL,
     timeout: float = 180.0,
+    team_names: list[str] | None = None,
 ) -> SQLGeneration:
-    """Appelle Ollama et renvoie le SQL genere (+ le raisonnement isole)."""
+    """Appelle Ollama et renvoie le SQL genere (+ le raisonnement isole).
+
+    `team_names` (facultatif) : les libelles reels de DIM_EQUIPE.nom_equipe,
+    injectes dans le prompt pour ancrer le modele sur les valeurs existantes.
+    """
     if not question or not question.strip():
         raise LLMError("Question vide.")
 
     payload = {
         "model": model,
         "messages": [
-            {"role": "system", "content": build_system_prompt()},
+            {"role": "system", "content": build_system_prompt(team_names=team_names)},
             {"role": "user", "content": question.strip()},
         ],
         "think": True,
@@ -150,13 +180,17 @@ if __name__ == "__main__":
     QUESTIONS = [
         ("Combien de buts l'Argentine a-t-elle marques en 2022 ?", 15),
         ("Combien de buts la France a-t-elle marques en 2018 ?", 14),
+        # Nom francais -> libelle anglais non trivial : verifie l'ancrage.
+        ("Combien de buts l'Espagne a-t-elle marques en 2018 ?", 7),
     ]
 
     try:
         conn = build_database(read_only=True)
+        team_names = [r[0] for r in conn.execute(
+            "SELECT nom_equipe FROM DIM_EQUIPE ORDER BY nom_equipe")]
         for question, attendu in QUESTIONS:
             print(f"\nQ : {question}")
-            gen = generate_sql(question)
+            gen = generate_sql(question, team_names=team_names)
             print(f"  raisonnement (extrait) : {gen.thinking[:120].replace(chr(10), ' ')}...")
             print(f"  SQL genere :\n    " + gen.sql.replace("\n", "\n    "))
 

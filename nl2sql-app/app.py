@@ -49,7 +49,16 @@ def get_connection():
     return build_database(read_only=True)
 
 
+@st.cache_data
+def get_team_names() -> list[str]:
+    """Libelles reels de DIM_EQUIPE (anglais), injectes dans le prompt pour
+    ancrer le modele : il traduit lui-meme 'Espagne' -> 'Spain'."""
+    return [r[0] for r in get_connection().execute(
+        "SELECT nom_equipe FROM DIM_EQUIPE ORDER BY nom_equipe")]
+
+
 conn = get_connection()
+team_names = get_team_names()
 
 st.title("⚽ Exploration en langage naturel — Coupe du Monde")
 st.caption(
@@ -79,7 +88,7 @@ if lancer:
     with st.spinner("Génération du SQL par le LLM…"):
         try:
             t0 = time.perf_counter()
-            gen = generate_sql(question)
+            gen = generate_sql(question, team_names=team_names)
             log.info("SQL généré en %.1fs", time.perf_counter() - t0)
         except LLMError as e:
             log.warning("Échec LLM après %.1fs : %s", time.perf_counter() - t0, e)
