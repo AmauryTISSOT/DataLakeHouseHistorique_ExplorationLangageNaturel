@@ -1,38 +1,4 @@
-"""DAG d'ingestion Bronze — Projet 4 (Lakehouse + text-to-SQL).
 
-Ingestion batch de trois sources heterogenes vers le bucket S3 ``bronze``
-(SeaweedFS, API S3 compatible) :
-
-1. CSV  — datasets versionnes dans le repo (``Data/raw/kaggle`` et
-          ``Data/raw/soccerdata``), montes en lecture seule dans le conteneur
-          Airflow sous /opt/airflow/data (cf. docker-compose.yml).
-          La liste des fichiers est decouverte a l'execution (task mappee) :
-          un nouveau CSV depose dans Data/raw/ est ingere sans modifier le DAG.
-2. JSON — ``worldcup.json`` consolide du depot GitHub jfjelstul/worldcup
-          (~36 Mo, structure imbriquee).
-3. API  — World Bank (metadonnees pays : region, capitale, niveau de revenu)
-          pour enrichir la future DIM_EQUIPE. API publique sans cle
-          (RestCountries, envisagee initialement, exige une cle depuis sa v5).
-
-Principe de la couche Bronze : les donnees sont stockees BRUTES (aucune
-transformation), partitionnees par date d'ingestion :
-
-    bronze/
-      raw_kaggle/ingest_date=YYYY-MM-DD/<fichier>.csv
-      raw_soccerdata/ingest_date=YYYY-MM-DD/<fichier>.csv
-      worldcup_json/ingest_date=YYYY-MM-DD/worldcup.json
-      worldbank/ingest_date=YYYY-MM-DD/countries.json
-      _manifests/ingest_date=YYYY-MM-DD/manifest.json
-
-Le manifeste final liste tous les objets deposes (cle, taille, source) :
-il servira de point d'entree au catalogue de donnees et a la couche Silver.
-
-Re-executer le DAG pour une meme date ecrase les memes cles (idempotent).
-
-NB : la connexion S3 est faite directement via boto3 pour rester lisible ;
-en production on passerait par une Connection Airflow + S3Hook
-(provider amazon), configurable depuis l'UI.
-"""
 
 from __future__ import annotations
 
