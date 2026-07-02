@@ -90,6 +90,86 @@ affichée et le conteneur terminé en `exit 0`, relancez le healthcheck :
 | SeaweedFS (UI master) | http://localhost:9333 | — |
 | SeaweedFS (filer) | http://localhost:8888 | — |
 | PostgreSQL | `localhost:5432` (base `gold`) | `app` / `app12345` |
-| Airflow | http://localhost:8080 | voir `docker compose logs airflow` |
+| Airflow | http://localhost:8080 | `datalake` / `datalake` (voir ci-dessous) |
 | Superset | http://localhost:8088 | admin créé à l'init |
 | Ollama | http://localhost:11434 | — |
+
+### Créer l'utilisateur Airflow
+
+Une fois le conteneur Airflow démarré, créer un utilisateur pour se connecter à
+l'interface (http://localhost:8080) :
+
+```powershell
+docker compose exec airflow airflow users create --username datalake --firstname Data --lastname Lake --role Admin --email datalake@example.com --password datalake
+```
+
+On peut ensuite se connecter avec l'identifiant `datalake` et le mot de passe
+`datalake`.
+
+## Architecture de la pipeline (médaillon)
+
+Les données suivent les trois couches classiques d'un lakehouse. L'orchestration
+est assurée par Airflow (un DAG par couche, dans `dags/`).
+
+| Couche | DAG | Sortie | Contenu |
+|---|---|---|---|
+| **Bronze** | `ingestion_bronze_worldcup` | SeaweedFS, bucket `bronze` | CSV bruts, partitionnés par date d'ingestion |
+| **Silver** | `transformation_silver_worldcup` | SeaweedFS, bucket `silver` | Parquet nettoyé, normalisé et typé (dates/heures/minutes) |
+| **Gold** | `transformation_gold_worldcup` | PostgreSQL, schéma `gold` | Schéma en étoile (dimensions + faits) + tables métier (marts) |
+
+- Le dossier `Data/` du dépôt est monté en lecture seule dans le conteneur Airflow
+  (`/opt/airflow/data`) : le DAG bronze y lit les CSV sources.
+- La couche Gold est la base **servie** : Superset et l'application text-to-SQL
+  l'interrogent.
+
+## Lancer la pipeline
+
+Les trois DAGs sont indépendants au sens d'Airflow ; il faut donc les exécuter
+**dans l'ordre** Bronze → Silver → Gold (chaque couche lit ce que la précédente a
+écrit).
+
+### Option A — Interface Airflow (http://localhost:8080)
+
+1. Activer les trois DAGs (interrupteur à gauche de leur nom).
+2. Cliquer sur ▶ (*Trigger DAG*) pour chacun, **dans l'ordre**, en attendant que le
+   précédent soit au vert :
+   1. `ingestion_bronze_worldcup`
+   2. `transformation_silver_worldcup`
+   3. `transformation_gold_worldcup`
+
+### Option B — Ligne de commande
+
+```powershell
+docker compose exec airflow airflow dags test ingestion_bronze_worldcup 2026-07-02
+docker compose exec airflow airflow dags test transformation_silver_worldcup 2026-07-02
+docker compose exec airflow airflow dags test transformation_gold_worldcup 2026-07-02
+```
+
+> La date passée aux commandes sert de date d'ingestion (partition
+> `ingest_date=…`). Adaptez-la si besoin ; ré-exécuter pour la même date écrase les
+> mêmes données (idempotent).
+
+## Explorer les résultats
+
+### Buckets Bronze / Silver (SeaweedFS)
+
+Parcourir les objets déposés via l'interface filer : http://localhost:8888
+(dossiers `bronze/` et `silver/`).
+
+### Base Gold (PostgreSQL)
+
+```powershell
+docker compose exec postgres psql -U app -d gold
+```
+
+Puis, dans psql :
+
+```sql
+\dt gold.*                                   -- lister les tables
+SELECT * FROM gold.mart_classement_buteurs ORDER BY rang LIMIT 10;
+SELECT annee, pays_hote, nb_matchs, nb_buts, moyenne_buts_par_match
+FROM gold.mart_stats_edition ORDER BY annee DESC;
+```
+
+On peut aussi s'y connecter avec un client graphique (DBeaver, pgAdmin…) sur
+`localhost:5432`, base `gold`, schéma `gold` (`app` / `app12345`).
