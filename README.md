@@ -95,6 +95,36 @@ affichée et le conteneur terminé en `exit 0`, relancez le healthcheck :
 | Ollama | http://localhost:11434 | — |
 | Application NL→SQL | http://localhost:8501 | — |
 
+### Initialisation manuelle de superset 
+
+Dans certains cas, l’initialisation automatique de Superset peut nécessiter une exécution manuelle.
+Nous avons donc initialisé Superset directement dans le conteneur avec les commandes suivantes :
+```powershell
+docker exec -it datalakehousehistorique_explorationlangagenaturel-superset-1 bash
+```
+Puis, à l’intérieur du conteneur :
+
+superset db upgrade
+
+superset fab create-admin \
+  --username admin \
+  --firstname Admin \
+  --lastname User \
+  --email admin@example.com \
+  --password admin
+
+superset init
+
+Ces commandes permettent de :
+
+initialiser la base de données interne de Apache Superset
+créer un utilisateur administrateur (admin)
+préparer l’application pour l’accès à l’interface web
+
+Une fois terminé, Superset est accessible à l’adresse :
+
+http://localhost:8088
+
 ### Créer l'utilisateur Airflow
 
 Une fois le conteneur Airflow démarré, créer un utilisateur pour se connecter à
