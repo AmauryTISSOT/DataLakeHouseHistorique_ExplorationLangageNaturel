@@ -37,7 +37,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://app:app12345@postgres/gold
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     ports: ["8080:8080"]
-    volumes: ["./dags:/opt/airflow/dags"]
+    # ./Data monte en lecture seule : le DAG bronze lit les CSV sous /opt/airflow/data/raw
+    volumes: ["./dags:/opt/airflow/dags", "./Data:/opt/airflow/data:ro"]
     command: standalone
 
   superset:
