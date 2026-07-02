@@ -19,5 +19,6 @@ jupyter>=1.0
 boto3>=1.34
 requests>=2.31
 
-# Application NL->SQL (nl2sql-app) : validation applicative des requetes generees
-sqlglot>=25
+# Application NL->SQL (nl2sql-app)
+sqlglot>=25        # validation applicative des requetes generees (parsing AST)
+streamlit>=1.40    # interface du banc d'essai (app.py)
