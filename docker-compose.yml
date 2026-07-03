@@ -53,15 +53,15 @@ services:
     build: ./superset
     image: superset-gold:local
     depends_on:
+      superset-db:
+        condition: service_healthy
       postgres:
         condition: service_healthy
     environment:
-      # Doit etre identique au service superset : sert a chiffrer/dechiffrer
-      # le mot de passe de la connexion GOLD stocke en base de metadonnees.
       SUPERSET_SECRET_KEY: change_me_please
-    volumes: ["superset_home:/app/superset_home"]
-    # Migrations -> compte admin (admin/admin) -> roles/permissions -> connexion GOLD.
-    # Chaque etape est idempotente : le conteneur peut etre rejoue sans effet de bord.
+    volumes:
+      - superset_home:/app/superset_home
+      - ./superset/bootstrap:/app/bootstrap   # 👈 AJOUT IMPORTANT (accès au zip)
     entrypoint:
       - /bin/bash
       - -c
@@ -69,20 +69,36 @@ services:
         superset db upgrade &&
         (superset fab create-admin --username admin --firstname Admin --lastname User --email admin@example.com --password admin || true) &&
         superset init &&
-        python /app/register_gold.py
+        python /app/register_gold.py &&
+        superset import-dashboards -p /app/bootstrap/dashboards.zip || true
     restart: "no"
 
   superset:
     build: ./superset
     image: superset-gold:local
     depends_on:
+      superset-db:
+        condition: service_healthy
       superset-init:
         condition: service_completed_successfully
     environment:
       SUPERSET_SECRET_KEY: change_me_please
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://superset:superset@superset-db/superset
     ports: ["8088:8088"]
     volumes: ["superset_home:/app/superset_home"]
 
+  superset-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U superset -d superset"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
   ollama:
     image: ollama/ollama:latest
     ports: ["11434:11434"]
